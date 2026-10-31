@@ -5,4 +5,180 @@
     val id: String,
     val name: String,
     val avatarUrl: String?
+)package com.example.cleanapp // ← замени на package твоего проекта
+
+import android.os.Bundle
+import android.view.ViewGroup
+import android.widget.LinearLayout
+import android.widget.TextView
+import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import kotlinx.coroutines.launch
+
+/* ============================================================
+ * DOMAIN СЛОЙ (чистые модели и интерфейсы, без Android)
+ * ============================================================ */
+
+data class User(
+    val id: String,
+    val name: String,
+    val avatarUrl: String?
 )
+
+interface UserRepository {
+    suspend fun getUsers(): List<User>
+}
+
+/* ============================================================
+ * DATA СЛОЙ (DTO, хардкод-источник, маппер, реализация репозитория)
+ * ============================================================ */
+
+// DTO — то, в каком виде данные «лежат» в источнике
+data class UserDto(
+    val userId: String,
+    val userName: String,
+    val imageUrl: String?
+)
+
+// Хардкод-источник данных
+class HardcodedUserSource {
+    fun getUsers(): List<UserDto> = listOf(
+        UserDto("1", "Анна", "https://example.com/anna.jpg"),
+        UserDto("2", "Борис", "https://example.com/boris.jpg"),
+        UserDto("3", "Вера", null)
+    )
+}
+
+// Маппер: конвертация DTO -> Domain model
+object UserMapper {
+    fun map(dto: UserDto): User = User(
+        id = dto.userId,
+        name = dto.userName,
+        avatarUrl = dto.imageUrl
+    )
+
+    fun mapAll(dtos: List<UserDto>): List<User> = dtos.map { map(it) }
+}
+
+// Реализация репозитория: берет DTO из источника и конвертирует в Domain model
+class UserRepositoryImpl(
+    private val source: HardcodedUserSource
+) : UserRepository {
+
+    override suspend fun getUsers(): List<User> {
+        val dtos = source.getUsers()
+        return UserMapper.mapAll(dtos) // <-- DTO конвертируется через Mapper в Domain model
+    }
+}
+
+/* ============================================================
+ * PRESENTATION СЛОЙ (ViewModel, адаптер, экран)
+ * ============================================================ */
+
+class UsersViewModel(
+    private val repository: UserRepository
+) : ViewModel() {
+
+    private val _users = MutableLiveData<List<User>>()
+    val users: LiveData<List<User>> = _users
+
+    private val _error = MutableLiveData<String?>()
+    val error: LiveData<String?> = _error
+
+    init {
+        loadUsers()
+    }
+
+    private fun loadUsers() {
+        viewModelScope.launch {
+            try {
+                _users.postValue(repository.getUsers())
+            } catch (e: Exception) {
+                _error.postValue(e.message ?: "Ошибка загрузки пользователей")
+            }
+        }
+    }
+}
+
+class UsersAdapter(
+    private val onItemClick: (User) -> Unit
+) : RecyclerView.Adapter<UsersAdapter.UserViewHolder>() {
+
+    private val items = mutableListOf<User>()
+
+    fun submitList(newItems: List<User>) {
+        items.clear()
+        items.addAll(newItems)
+        notifyDataSetChanged()
+    }
+
+    class UserViewHolder(val root: LinearLayout) : RecyclerView.ViewHolder(root)
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): UserViewHolder {
+        // Простейшая "верстка" элемента списка прямо в коде
+        val textView = TextView(parent.context).apply {
+            textSize = 18f
+            setPadding(32, 32, 32, 32)
+        }
+        val root = LinearLayout(parent.context).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = RecyclerView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            addView(textView)
+        }
+        return UserViewHolder(root)
+    }
+
+    override fun onBindViewHolder(holder: UserViewHolder, position: Int) {
+        val user = items[position]
+        (holder.root.getChildAt(0) as TextView).text = user.name
+        holder.root.setOnClickListener { onItemClick(user) }
+    }
+
+    override fun getItemCount(): Int = items.size
+}
+
+class MainActivity : AppCompatActivity() {
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        // Верстка экрана: просто список на весь экран
+        val recyclerView = RecyclerView(this).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            layoutManager = LinearLayoutManager(this@MainActivity)
+        }
+        setContentView(recyclerView)
+
+        // Сборка зависимостей вручную (без DI): data -> domain -> presentation
+        val repository: UserRepository = UserRepositoryImpl(HardcodedUserSource())
+        val viewModel = UsersViewModel(repository)
+
+        val adapter = UsersAdapter { user ->
+            Toast.makeText(this, "Выбран: ${user.name}", Toast.LENGTH_SHORT).show()
+        }
+        recyclerView.adapter = adapter
+
+        // Наблюдение за данными из ViewModel
+        viewModel.users.observe(this) { users ->
+            adapter.submitList(users)
+        }
+        viewModel.error.observe(this) { error ->
+            error?.let {
+                Toast.makeText(this, it, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+}
+
