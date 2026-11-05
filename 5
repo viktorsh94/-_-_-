@@ -1,0 +1,241 @@
+// 1. UI-состояние экрана (один источник истины)
+sealed class UsersUiState {
+    object Loading : UsersUiState()
+    data class Success(val users: List<UserUiModel>) : UsersUiState()
+    data class Error(val message: String) : UsersUiState()
+}
+
+data class UserUiModel(
+    val id: String,
+    val name: String,
+    val avatarUrl: String?
+)
+
+// 2. Репозиторий (заглушка для примера)
+interface UsersRepository {
+    suspend fun getUsers(): List<User>
+}
+
+data class User(val id: String, val name: String, val avatarUrl: String?)
+
+class UsersRepositoryImpl(private val ioDispatcher: CoroutineDispatcher) : UsersRepository {
+    override suspend fun getUsers(): List<User> = withContext(ioDispatcher) {
+        // Имитация сетевого запроса
+        delay(800)
+        listOf(
+            User("1", "Alice", null),
+            User("2", "Bob", "https://example.com/bob.jpg")
+        )
+    }
+}
+
+// 3. ViewModel с StateFlow
+@HiltViewModel
+class UsersViewModel @Inject constructor(
+    private val repository: UsersRepository,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+) : ViewModel() {
+
+    // StateFlow всегда отдаёт последнее значение новому подписчику
+    private val _uiState = MutableStateFlow<UsersUiState>(UsersUiState.Loading)
+    val uiState: StateFlow<UsersUiState> = _uiState.asStateFlow()
+
+    init {
+        loadUsers()
+    }
+
+    fun loadUsers() {
+        viewModelScope.launch {
+            _uiState.value = UsersUiState.Loading
+            try {
+                val users = repository.getUsers()
+                val uiModels = users.map { user ->
+                    UserUiModel(
+                        id = user.id,
+                        name = user.name,
+                        avatarUrl = user.avatarUrl
+                    )
+                }
+                _uiState.value = UsersUiState.Success(uiModels)
+            } catch (e: Exception) {
+                _uiState.value = UsersUiState.Error(e.message ?: "Неизвестная ошибка")
+            }
+        }
+    }
+}
+
+@Composable
+fun UsersScreen(
+    viewModel: UsersViewModel = hiltViewModel()
+) {
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+    when (val state = uiState) {
+        is UsersUiState.Loading -> {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        }
+        is UsersUiState.Success -> {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(16.dp),
+                contentPadding = PaddingValues(top = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(state.users) { user ->
+                    UserItem(user = user) {
+                        // например, навигация или действие
+                    }
+                }
+            }
+            // Кнопка повторной загрузки
+            FloatingActionButton(
+                onClick = viewModel::loadUsers,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp)
+            ) {
+                Icon(imageVector = Icons.Default.Refresh, contentDescription = "Обновить")
+            }
+        }
+        is UsersUiState.Error -> {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(text = "Ошибка: ${state.message}")
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(onClick = viewModel::loadUsers) {
+                    Text("Попробовать снова")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun UserItem(user: UserUiModel, onAction: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Row(modifier = Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            user.avatarUrl?.let { url ->
+                AsyncImage(
+                    model = url,
+                    contentDescription = null,
+                    modifier = Modifier.size(48.dp),
+                    contentScale = ContentScale.Crop
+                )
+            } ?: Box(modifier = Modifier.size(48.dp)) // заглушка
+            Column {
+                Text(text = user.name, fontWeight = FontWeight.Bold)
+                Text(text = user.id)
+            }
+        }
+    }
+}
+[versions]
+kotlin = "2.2.21"
+ksp = "2.3.5"
+hilt = "2.60.1"
+androidxHilt = "1.4.0"
+navigationCompose = "2.9.x"  # поставьте актуальную в Android Studio
+
+[plugins]
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
+hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
+
+[libraries]
+hilt-android = { group = "com.google.dagger", name = "hilt-android", version.ref = "hilt" }
+hilt-compiler = { group = "com.google.dagger", name = "hilt-compiler", version.ref = "hilt" }
+hilt-navigation-compose = { group = "androidx.hilt", name = "hilt-navigation-compose", version.ref = "androidxHilt" }
+plugins {
+    alias(libs.plugins.kotlin.android) apply false
+    alias(libs.plugins.ksp) apply false
+    alias(libs.plugins.hilt) apply false
+}
+plugins {
+    alias(libs.plugins.kotlin.android) apply false
+    alias(libs.plugins.ksp) apply false
+    alias(libs.plugins.hilt) apply false
+}
+plugins {
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.ksp)
+    alias(libs.plugins.hilt)
+}
+
+dependencies {
+    implementation(libs.hilt.android)
+    ksp(libs.hilt.compiler) // именно ksp, не kapt
+    implementation(libs.hilt.navigation.compose)
+}
+interface AppsRepository {
+    fun getApps(): Flow<List<App>>
+}
+
+class AppsRepositoryImpl @Inject constructor(
+    private val mapper: AppsMapper,
+    private val dao: AppsDao,
+) : AppsRepository {
+    override fun getApps(): Flow<List<App>> =
+        dao.getAll().map { apps -> apps.map(mapper::toDomain) }
+}
+interface AppsRepository {
+    fun getApps(): Flow<List<App>>
+}
+
+class AppsRepositoryImpl @Inject constructor(
+    private val mapper: AppsMapper,
+    private val dao: AppsDao,
+) : AppsRepository {
+    override fun getApps(): Flow<List<App>> =
+        dao.getAll().map { apps -> apps.map(mapper::toDomain) }
+}
+@InstallIn(SingletonComponent::class)
+@Module
+object DatabaseModule {
+
+    @Provides
+    fun provideAppsMapper(): AppsMapper = AppsMapper()
+
+    @Provides
+    fun provideAppsDao(db: AppDatabase): AppsDao = db.appsDao()
+}
+@InstallIn(SingletonComponent::class)
+@Module
+abstract class AppsRepositoryModule {
+
+    @Binds
+    abstract fun bindAppsRepository(
+        impl: AppsRepositoryImpl
+    ): AppsRepository
+}
+@HiltViewModel
+class AppsViewModel @Inject constructor(
+    private val repository: AppsRepository, // сюда приедет AppsRepositoryImpl
+) : ViewModel() {
+
+    val apps = repository.getApps()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = emptyList(),
+        )
+}
+@HiltAndroidApp
+class AppsApplication : Application()
+@AndroidEntryPoint
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContent { AppTheme { AppsScreen() } }
+    }
+}
+@Composable
+fun AppsScreen(
+    viewModel: AppsViewModel = hiltViewModel(),
+) {
+    val apps by viewModel.apps.collectAsStateWithLifecycle()
+    LazyColumn {
+        items(apps) { app -> Text(app.name) }
+    }
+}
