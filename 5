@@ -27,7 +27,201 @@ class UsersRepositoryImpl(private val ioDispatcher: CoroutineDispatcher) : Users
             User("2", "Bob", "https://example.com/bob.jpg")
         )
     }
+}package com.example.app
+
+import kotlinx.coroutines.delay
+
+interface AppApi {
+    suspend fun getApps(): List<AppDto>
+
+    suspend fun getRating(id: String): Float {
+        delay(1500) // эмуляция сетевого запроса
+        return (30..50).random() / 10f
+    }
+}package com.example.app
+
+sealed interface InstallState {
+    data object NotInstalled : InstallState
+    data class Installing(val progress: Int) : InstallState // 0..100
+    data object Installed : InstallState
 }
+
+sealed interface AppDetailsState {
+    data object Loading : AppDetailsState
+
+    data class Content(
+        val appId: String,
+        val appName: String,
+        val installState: InstallState = InstallState.NotInstalled,
+    ) : AppDetailsState
+}
+package com.example.app
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+
+class AppDetailsViewModel : ViewModel() {
+
+    private val _state = MutableStateFlow<AppDetailsState>(AppDetailsState.Loading)
+    val state = _state.asStateFlow()
+
+    private var installJob: Job? = null
+
+    init {
+        // Заглушка: считаем, что приложение уже загружено
+        _state.value = AppDetailsState.Content(
+            appId = "1",
+            appName = "Sample App",
+        )
+    }
+
+    fun onInstallClick() {
+        val current = _state.value
+        if (current !is AppDetailsState.Content) return
+
+        if (current.installState is InstallState.Installing) {
+            installJob?.cancel()
+            _state.update { it.copy(installState = InstallState.NotInstalled) }
+        } else {
+            installJob = viewModelScope.launch {
+                emulateInstall()
+            }
+        }package com.example.app
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun AppDetailsScreen(
+    viewModel: AppDetailsViewModel,
+    modifier: Modifier = Modifier,
+) {
+    val state by viewModel.state.collectAsState()
+
+    when (val currentState = state) {
+        is AppDetailsState.Loading -> {
+            Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        }
+
+        is AppDetailsState.Content -> {
+            Column(
+                modifier = modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Text(
+                    text = currentState.appName,
+                    style = MaterialTheme.typography.headlineMedium,
+                )
+
+                val installState = currentState.installState
+                if (installState is InstallState.Installing) {
+                    LinearProgressIndicator(
+                        progress = { installState.progress / 100f },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text(
+                        text = "Установка: ${installState.progress}%",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+
+                InstallButton(
+                    installState = currentState.installState,
+                    onClick = viewModel::onInstallClick,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun InstallButton(
+    installState: InstallState,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val text = when (installState) {
+        InstallState.NotInstalled -> "Установить"
+        is InstallState.Installing -> "Отменить"
+        InstallState.Installed -> "Установлено"
+    }
+    Button(
+        onClick = onClick,
+        enabled = installState != InstallState.Installed,
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Text(text)
+    }
+}
+
+    }
+
+    private suspend fun emulateInstall() {
+        for (progress in 0..100 step 5) {
+            delay(150)
+            _state.update { content ->
+                if (content is AppDetailsState.Content) {
+                    content.copy(installState = InstallState.Installing(progress))
+                } else {
+                    content
+                }
+            }
+        }
+        _state.update { content ->
+            if (content is AppDetailsState.Content) {
+                content.copy(installState = InstallState.Installed)
+            } else {
+                content
+            }
+        }
+    }package com.example.app
+
+data class AppDto(
+    val id: String,
+    val name: String,
+)
+package com.example.app
+
+data class AppDto(
+    val id: String,
+    val name: String,
+)
+
+}
+
+
+class FakeAppApi : AppApi {
+    override suspend fun getApps(): List<AppDto> {
+        delay(500) // эмуляция сетевого запроса
+        return (1..12).map { AppDto(id = it.toString(), name = "App $it") }
+    }
+}
+
 
 // 3. ViewModel с StateFlow
 @HiltViewModel
@@ -109,6 +303,25 @@ fun UsersScreen(
                 }
             }
         }
+    }
+}
+package com.example.app
+
+import kotlinx.coroutines.delay
+
+interface AppApi {
+    suspend fun getApps(): List<AppDto>
+
+    suspend fun getRating(id: String): Float {
+        delay(1500) // эмуляция сетевого запроса
+        return (30..50).random() / 10f
+    }
+}
+
+class FakeAppApi : AppApi {
+    override suspend fun getApps(): List<AppDto> {
+        delay(500) // эмуляция сетевого запроса
+        return (1..12).map { AppDto(id = it.toString(), name = "App $it") }
     }
 }
 
