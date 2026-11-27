@@ -1,0 +1,578 @@
+/ 1. UI-состояние экрана (один источник истины)
+sealed class UsersUiState {
+    object Loading : UsersUiState()
+    data class Success(val users: List<UserUiModel>) : UsersUiState()
+    data class Error(val message: String) : UsersUiState()
+}
+
+data class UserUiModel(
+    val id: String,
+    val name: String,
+    val avatarUrl: String?
+)
+
+// 2. Репозиторий (заглушка для примера)
+interface UsersRepository {
+    suspend fun getUsers(): List<User>
+}
+
+data class User(val id: String, val name: String, val avatarUrl: String?)
+
+class UsersRepositoryImpl(private val ioDispatcher: CoroutineDispatcher) : UsersRepository {
+    override suspend fun getUsers(): List<User> = withContext(ioDispatcher) {
+        // Имитация сетевого запроса
+        delay(800)
+        listOf(
+            User("1", "Alice", null),
+            User("2", "Bob", "https://example.com/bob.jpg")
+        )
+    }
+}package com.example.app
+
+import kotlinx.coroutines.delay
+
+interface AppApi {
+    suspend fun getApps(): List<AppDto>
+
+    suspend fun getRating(id: String): Float {
+        delay(1500) // эмуляция сетевого запроса
+        return (30..50).random() / 10f
+    }
+}package com.example.app
+
+sealed interface InstallState {
+    data object NotInstalled : InstallState
+    data class Installing(val progress: Int) : InstallState // 0..100
+    data object Installed : InstallState
+}
+
+sealed interface AppDetailsState {
+    data object Loading : AppDetailsState
+
+    data class Content(
+        val appId: String,
+        val appName: String,
+        val installState: InstallState = InstallState.NotInstalled,
+    ) : AppDetailsState
+}
+package com.example.app
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+
+class AppDetailsViewModel : ViewModel() {
+
+    private val _state = MutableStateFlow<AppDetailsState>(AppDetailsState.Loading)
+    val state = _state.asStateFlow()
+
+    private var installJob: Job? = null
+
+    init {
+        // Заглушка: считаем, что приложение уже загружено
+        _state.value = AppDetailsState.Content(
+            appId = "1",
+            appName = "Sample App",
+        )
+    }
+
+    fun onInstallClick() {
+        val current = _state.value
+        if (current !is AppDetailsState.Content) return
+
+        if (current.installState is InstallState.Installing) {
+            installJob?.cancel()
+            _state.update { it.copy(installState = InstallState.NotInstalled) }
+        } else {
+            installJob = viewModelScope.launch {
+                emulateInstall()
+            }
+        }package com.example.app
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun AppDetailsScreen(
+    viewModel: AppDetailsViewModel,
+    modifier: Modifier = Modifier,
+) {
+    val state by viewModel.state.collectAsState()
+
+    when (val currentState = state) {
+        is AppDetailsState.Loading -> {
+            Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        }
+
+        is AppDetailsState.Content -> {
+            Column(
+                modifier = modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Text(
+                    text = currentState.appName,
+                    style = MaterialTheme.typography.headlineMedium,
+                )
+
+                val installState = currentState.installState
+                if (installState is InstallState.Installing) {
+                    LinearProgressIndicator(
+                        progress = { installState.progress / 100f },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text(
+                        text = "Установка: ${installState.progress}%",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+
+                InstallButton(
+                    installState = currentState.installState,
+                    onClick = viewModel::onInstallClick,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun InstallButton(
+    installState: InstallState,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val text = when (installState) {
+        InstallState.NotInstalled -> "Установить"
+        is InstallState.Installing -> "Отменить"
+        InstallState.Installed -> "Установлено"
+    }
+    Button(
+        onClick = onClick,
+        enabled = installState != InstallState.Installed,
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Text(text)
+    }
+}
+
+    }
+
+    private suspend fun emulateInstall() {
+        for (progress in 0..100 step 5) {
+            delay(150)
+            _state.update { content ->
+                if (content is AppDetailsState.Content) {
+                    content.copy(installState = InstallState.Installing(progress))
+                } else {
+                    content
+                }
+            }
+        }
+        _state.update { content ->
+            if (content is AppDetailsState.Content) {
+                content.copy(installState = InstallState.Installed)
+            } else {
+                content
+            }
+        }
+    }package com.example.app
+
+data class AppDto(
+    val id: String,
+    val name: String,
+)
+package com.example.app
+
+data class AppDto(
+    val id: String,
+    val name: String,
+)
+
+}
+
+
+class FakeAppApi : AppApi {
+    override suspend fun getApps(): List<AppDto> {
+        delay(500) // эмуляция сетевого запроса
+        return (1..12).map { AppDto(id = it.toString(), name = "App $it") }
+    }
+}
+
+
+// 3. ViewModel с StateFlow
+@HiltViewModel
+class UsersViewModel @Inject constructor(
+    private val repository: UsersRepository,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+) : ViewModel() {
+
+    // StateFlow всегда отдаёт последнее значение новому подписчику
+    private val _uiState = MutableStateFlow<UsersUiState>(UsersUiState.Loading)
+    val uiState: StateFlow<UsersUiState> = _uiState.asStateFlow()
+
+    init {
+        loadUsers()
+    }
+
+    fun loadUsers() {
+        viewModelScope.launch {
+            _uiState.value = UsersUiState.Loading
+            try {
+                val users = repository.getUsers()
+                val uiModels = users.map { user ->
+                    UserUiModel(
+                        id = user.id,
+                        name = user.name,
+                        avatarUrl = user.avatarUrl
+                    )
+                }
+                _uiState.value = UsersUiState.Success(uiModels)
+            } catch (e: Exception) {
+                _uiState.value = UsersUiState.Error(e.message ?: "Неизвестная ошибка")
+            }
+        }
+    }
+}
+
+@Composable
+fun UsersScreen(
+    viewModel: UsersViewModel = hiltViewModel()
+) {
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+    when (val state = uiState) {
+        is UsersUiState.Loading -> {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        }
+        is UsersUiState.Success -> {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(16.dp),
+                contentPadding = PaddingValues(top = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(state.users) { user ->
+                    UserItem(user = user) {
+                        // например, навигация или действие
+                    }
+                }
+            }
+            // Кнопка повторной загрузки
+            FloatingActionButton(
+                onClick = viewModel::loadUsers,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp)
+            ) {
+                Icon(imageVector = Icons.Default.Refresh, contentDescription = "Обновить")
+            }
+        }
+        is UsersUiState.Error -> {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(text = "Ошибка: ${state.message}")
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(onClick = viewModel::loadUsers) {
+                    Text("Попробовать снова")
+                }
+            }
+        }
+    }
+}
+package com.example.app
+
+import kotlinx.coroutines.delay
+
+interface AppApi {
+    suspend fun getApps(): List<AppDto>
+
+    suspend fun getRating(id: String): Float {
+        delay(1500) // эмуляция сетевого запроса
+        return (30..50).random() / 10f
+    }
+}
+
+class FakeAppApi : AppApi {
+    override suspend fun getApps(): List<AppDto> {
+        delay(500) // эмуляция сетевого запроса
+        return (1..12).map { AppDto(id = it.toString(), name = "App $it") }
+    }
+}
+
+@Composable
+private fun UserItem(user: UserUiModel, onAction: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Row(modifier = Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            user.avatarUrl?.let { url ->
+                AsyncImage(
+                    model = url,
+                    contentDescription = null,
+                    modifier = Modifier.size(48.dp),
+                    contentScale = ContentScale.Crop
+                )
+            } ?: Box(modifier = Modifier.size(48.dp)) // заглушка
+            Column {
+                Text(text = user.name, fontWeight = FontWeight.Bold)
+                Text(text = user.id)
+            }
+        }
+    }
+}
+[versions]
+kotlin = "2.2.21"
+ksp = "2.3.5"
+hilt = "2.60.1"
+androidxHilt = "1.4.0"
+navigationCompose = "2.9.x"  # поставьте актуальную в Android Studio
+
+[plugins]
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
+hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
+
+[libraries]
+hilt-android = { group = "com.google.dagger", name = "hilt-android", version.ref = "hilt" }
+hilt-compiler = { group = "com.google.dagger", name = "hilt-compiler", version.ref = "hilt" }
+hilt-navigation-compose = { group = "androidx.hilt", name = "hilt-navigation-compose", version.ref = "androidxHilt" }
+plugins {
+    alias(libs.plugins.kotlin.android) apply false
+    alias(libs.plugins.ksp) apply false
+    alias(libs.plugins.hilt) apply false
+}
+plugins {
+    alias(libs.plugins.kotlin.android) apply false
+    alias(libs.plugins.ksp) apply false
+    alias(libs.plugins.hilt) apply false
+}
+plugins {
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.ksp)
+    alias(libs.plugins.hilt)
+}
+
+dependencies {
+    implementation(libs.hilt.android)
+    ksp(libs.hilt.compiler) // именно ksp, не kapt
+    implementation(libs.hilt.navigation.compose)
+}
+interface AppsRepository {
+    fun getApps(): Flow<List<App>>
+}
+
+class AppsRepositoryImpl @Inject constructor(
+    private val mapper: AppsMapper,
+    private val dao: AppsDao,
+) : AppsRepository {
+    override fun getApps(): Flow<List<App>> =
+        dao.getAll().map { apps -> apps.map(mapper::toDomain) }
+}
+interface AppsRepository {
+    fun getApps(): Flow<List<App>>
+}
+
+class AppsRepositoryImpl @Inject constructor(
+    private val mapper: AppsMapper,
+    private val dao: AppsDao,
+) : AppsRepository {
+    override fun getApps(): Flow<List<App>> =
+        dao.getAll().map { apps -> apps.map(mapper::toDomain) }
+}
+@InstallIn(SingletonComponent::class)
+@Module
+object DatabaseModule {
+
+    @Provides
+    fun provideAppsMapper(): AppsMapper = AppsMapper()
+
+    @Provides
+    fun provideAppsDao(db: AppDatabase): AppsDao = db.appsDao()
+}
+@InstallIn(SingletonComponent::class)
+@Module
+abstract class AppsRepositoryModule {
+
+    @Binds
+    abstract fun bindAppsRepository(
+        impl: AppsRepositoryImpl
+    ): AppsRepository
+}
+@HiltViewModel
+class AppsViewModel @Inject constructor(
+    private val repository: AppsRepository, // сюда приедет AppsRepositoryImpl
+) : ViewModel() {
+
+    val apps = repository.getApps()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = emptyList(),
+        )
+}
+@HiltAndroidApp
+class AppsApplication : Application()
+@AndroidEntryPoint
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContent { AppTheme { AppsScreen() } }
+    }
+}
+@Composable
+fun AppsScreen(
+    viewModel: AppsViewModel = hiltViewModel(),
+) {
+    val apps by viewModel.apps.collectAsStateWithLifecycle()
+    LazyColumn {
+        items(apps) { app -> Text(app.name) }
+    }
+}
+data class AppDetails(
+    val id: String,
+    val name: String,
+    val description: String,
+    // ...
+    val isInWishlist: Boolean = false
+)
+data class AppDetails(
+    val id: String,
+    val name: String,
+    val description: String,
+    // ...
+    val isInWishlist: Boolean = false
+)
+fun AppDetailsEntity.toDomain(): AppDetails = AppDetails(
+    id = id,
+    name = name,
+    description = description,
+    // ...
+    isInWishlist = isInWishlist
+)
+
+fun AppDetails.toEntity(): AppDetailsEntity = AppDetailsEntity(
+    id = id,
+    name = name,
+    description = description,
+    // ...
+    isInWishlist = isInWishlist
+)
+@Dao
+interface AppDetailsDao {
+
+    @Query("SELECT * FROM app_details WHERE id = :id")
+    fun getAppDetails(id: String): Flow<AppDetailsEntity?>
+
+    @Query("UPDATE app_details SET isInWishlist = :isInWishlist WHERE id = :id")
+    suspend fun updateWishlistStatus(id: String, isInWishlist: Boolean)
+}
+interface AppDetailsRepository {
+    fun observeAppDetails(id: String): Flow<AppDetails>
+    suspend fun toggleWishlist(id: String)
+    // ... существующие методы
+}class AppDetailsRepositoryImpl(
+    private val appDetailsDao: AppDetailsDao
+) : AppDetailsRepository {
+
+    override fun observeAppDetails(id: String): Flow<AppDetails> {
+        return appDetailsDao.getAppDetails(id)
+            .map { it?.toDomain() ?: throw NoSuchElementException("App $id not found") }
+    }
+
+    override suspend fun toggleWishlist(id: String) {
+        val currentEntity = appDetailsDao.getAppDetails(id).first()
+        currentEntity?.let {
+            appDetailsDao.updateWishlistStatus(id, !it.isInWishlist)
+        }
+    }
+}
+override suspend fun toggleWishlist(id: String) {
+    appDetailsDao.invertWishlistStatus(id)
+}
+
+// в DAO:
+@Query("UPDATE app_details SET isInWishlist = 1 - isInWishlist WHERE id = :id")
+suspend fun invertWishlistStatus(id: String)
+override suspend fun toggleWishlist(id: String) {
+    appDetailsDao.invertWishlistStatus(id)
+}
+
+// в DAO:
+@Query("UPDATE app_details SET isInWishlist = 1 - isInWishlist WHERE id = :id")
+suspend fun invertWishlistStatus(id: String)
+
+class ObserveAppDetailsUseCase(
+    private val repository: AppDetailsRepository
+) {
+    operator fun invoke(id: String): Flow<AppDetails> = repository.observeAppDetails(id)
+}
+
+class ToggleWishlistUseCase(
+    private val repository: AppDetailsRepository
+) {
+    suspend operator fun invoke(id: String) = repository.toggleWishlist(id)
+}
+sealed interface AppDetailsState {
+    data object Loading : AppDetailsState
+    data class Content(
+        val appDetails: AppDetails,
+        val descriptionCollapsed: Boolean = false
+    ) : AppDetailsState
+    data object Error : AppDetailsState
+}
+
+class AppDetailsViewModel(
+    private val appId: String,
+    private val appDetailsRepository: AppDetailsRepository
+) : ViewModel() {
+
+    private val _state = MutableStateFlow<AppDetailsState>(AppDetailsState.Loading)
+    val state: StateFlow<AppDetailsState> = _state.asStateFlow()
+
+    init {
+        observeAppDetails()
+    }
+
+    private fun observeAppDetails() {
+        viewModelScope.launch {
+            appDetailsRepository.observeAppDetails(appId)
+                .catch { _state.value = AppDetailsState.Error }
+                .collect { appDetails ->
+                    _state.value = AppDetailsState.Content(
+                        appDetails = appDetails,
+                        descriptionCollapsed = false
+                    )
+                }
+        }
+    }
+}
+fun toggleWishlist() {
+    viewModelScope.launch {
+        appDetailsRepository.toggleWishlist(appId)
+    }
+}
+onWishlistClick = viewModel::toggleWishlist
